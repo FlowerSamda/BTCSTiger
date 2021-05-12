@@ -8,7 +8,6 @@ contract Pool1 is Ownable {
     using SafeBEP20 for IBEP20;
     using SafeMath for uint256;
 
-
     struct UserInfo {
 
         uint256 shares; // How many LP tokens the user has provided.
@@ -17,14 +16,25 @@ contract Pool1 is Ownable {
 
     struct PoolInfo {
         IBEP20 want; // Address of the want token.
-        uint256 accSTigerPerShare;
+        uint256 allocMultiply;  // pool에 할당된 배수(STiger 지급용)
+        uint256 lastRewardBlock;  // Reward가 지급된 블록 ( 컴파운드 된 블록 )
+        uint256 accSTigerPerShare;  // Share당 STiger 누적량
+        address strat;  // compound를 해줄 컨트랙트 주소
     }
 
     PoolInfo[] public poolInfo;
     mapping(uint256 => mapping(address => UserInfo)) public userInfo;
 
+    /* 모든 식은 *100이 되어있음 (.1 -> 10, .05 ->5)
+    ** 
+    */
+
+    uint256 startBlock = 9999999999999;  // 시작할 블록
+    uint256 totalMultiply = 0;
+
     address public STiger = 0x2D35515397521cd5B48c7E000EBE535Dd2e93a73;
-    uint256 public ownerSTigerReward = 100;
+    uint256 public STigerMaxSupply = 1000000e18;  // 1million!
+    uint256 public ownerSTigerReward = 100;  // 1%
     
 
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
@@ -35,10 +45,14 @@ contract Pool1 is Ownable {
         uint256 amount
     );
 
+    /*
     function approvePool(IBEP20 _want) public {
         _want.approve(address(this), 100000);
     }
+    token.approve(이 계약의 주소, 수량) 이런 식으로 web3 상에서 구현하기.. tx.origin이 아니라 불가
+    */
     
+
     function getAllowance (IBEP20 _want) public view returns (uint256) {
         return _want.allowance(tx.origin, address(this));
     }
@@ -47,13 +61,49 @@ contract Pool1 is Ownable {
         return poolInfo.length;
     }
     
-    function add(IBEP20 _want) public onlyOwner {
+    function add(
+        IBEP20 _want,
+        uint256 _allocMultiply,
+        address _strat
+    ) public onlyOwner {
+        
+        uint256 lastRewardBlock = 
+            block.number > startBlock ? block.number : startBlock;
+        totalMultiply = totalMultiply.add(_allocMultiply);
+
         poolInfo.push(
             PoolInfo({
                 want: _want,
-                accSTigerPerShare: 0
+                allocMultiply: _allocMultiply,
+                lastRewardBlock: lastRewardBlock,
+                accSTigerPerShare: 0,
+                strat: _strat
             })
         );
+    }
+
+    // poolInfo[_pid]의 allocMultiply를 allocNewMultiply로 바꾼다.
+    function update(
+        uint256 _pid,
+        uint256 _allocNewMulltiply
+    ) public onlyOwner {
+
+        totalMultiply = totalMultiply.sub(poolInfo[_pid].allocMultiply).add(
+            _allocNewMulltiply
+        );
+        poolInfo[_pid].allocMultiply = _allocNewMulltiply;
+    }
+
+
+    function getRewardSTiger(
+        uint256 _fromBlockNum,
+        uint256 _toBlockNum
+    ) public view returns(uint256) {
+        if (IBEP20(STiger).totalSupply() >= STigerMaxSupply) {
+            return 0;
+        }
+        
+        return _toBlockNum.sub(_fromBlockNum);
     }
 
     function deposit(uint256 _pid, uint256 _wantAmt) public {
