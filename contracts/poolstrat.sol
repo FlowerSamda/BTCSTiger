@@ -83,7 +83,7 @@ contract Pool1 is Ownable {
     }
 
     // poolInfo[_pid]의 allocMultiply를 allocNewMultiply로 바꾼다.
-    function update(
+    function MultiplyUpdate(
         uint256 _pid,
         uint256 _allocNewMulltiply
     ) public onlyOwner {
@@ -106,11 +106,31 @@ contract Pool1 is Ownable {
         return _toBlockNum.sub(_fromBlockNum);
     }
 
+    // 지급해야할 STiger의 양이 보유량보다 많다면 보유량 전체를 줌
+    function safeSTigerTransfer(address _to, uint256 _STigerAmt) internal {
+        uint256 STigerBal = IBEP20(STiger).balanceOf(address(this));
+        if (_STigerAmt > STigerBal) {
+            IBEP20(STiger).transfer(_to, STigerBal);
+        } else {
+            IBEP20(STiger).transfer(_to, _STigerAmt0;)
+        }
+    }
+
     function deposit(uint256 _pid, uint256 _wantAmt) public {
 
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
 
+        if (user.shares > 0) {
+            uint256 pending =
+                user.shares.mul(pool.accSTigerPerShare).div(1e12).sub(
+                    user.rewardDebt
+                );
+            if (pending > 0) {
+                safeSTigerTransfer(msg.sender, pending);
+            }
+        }
+        
         if (_wantAmt > 0) {
             pool.want.safeTransferFrom(
                 address(msg.sender),
